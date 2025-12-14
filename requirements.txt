@@ -1,0 +1,15 @@
+# Core mesh processing libraries
+trimesh>=4.0.0          # Primary mesh manipulation library
+pymeshfix>=0.16.0       # Mesh repair and fixing
+meshio>=5.0.0           # Mesh I/O for various formats
+numpy>=1.24.0           # Numerical operations
+scipy>=1.10.0           # Scientific computing
+
+# Additional mesh utilities
+pyvista>=0.42.0         # 3D visualization (optional but useful)
+rtree>=1.0.0            # Spatial indexing for trimesh
+
+# Optional but recommended
+matplotlib>=3.7.0       # For plotting and analysis
+scikit-image>=0.21.0    # Image processing for texture work
+networkx>=3.0           # Graph algorithms for mesh analysis

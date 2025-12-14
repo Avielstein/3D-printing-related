@@ -1,0 +1,93 @@
+# Python Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Processed/Output STL Files
+# Keep original scans, ignore processed versions
+*_4x4_ready.stl
+*_ready.stl
+*_printable.stl
+*_fixed.stl
+*_scaled.stl
+*_smoothed.stl
+*_reduced.stl
+*_[0-9]*mm.stl
+processed/
+output/
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+.cache/
+
+# MeshMixer temp files
+*.mix
+
+# Slicer files (optional - uncomment if you don't want to track these)
+# *.gcode
+# *.3mf
+# *.form
