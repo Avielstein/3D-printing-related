@@ -65,17 +65,7 @@ ipython_config.py
 ehthumbs.db
 Thumbs.db
 
-# Processed/Output STL Files
-# Keep original scans, ignore processed versions
-*_4x4_ready.stl
-*_ready.stl
-*_printable.stl
-*_fixed.stl
-*_scaled.stl
-*_smoothed.stl
-*_reduced.stl
-*_[0-9]*mm.stl
-processed/
+# Temporary output directories (if needed)
 output/
 
 # Temporary files
