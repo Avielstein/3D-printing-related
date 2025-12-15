@@ -75,7 +75,8 @@ output/
 .cache/
 
 # MeshMixer temp files
-*.mix
+#we will keep for now
+#*.mix 
 
 # Slicer files (optional - uncomment if you don't want to track these)
 # *.gcode
