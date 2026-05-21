@@ -7,7 +7,7 @@ Scale models to a target size, perfect for scans that have incorrect scale.
 import argparse
 import sys
 from pathlib import Path
-from mesh_processor import MeshProcessor
+from Lidar2STL.mesh_processor import MeshProcessor
 
 
 def scale_model(input_file: str, target_size: float, axis: str = 'auto', 

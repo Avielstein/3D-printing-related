@@ -7,7 +7,7 @@ Process multiple STL files at once with consistent settings.
 import argparse
 import sys
 from pathlib import Path
-from mesh_processor import MeshProcessor
+from Lidar2STL.mesh_processor import MeshProcessor
 
 
 def batch_process(
