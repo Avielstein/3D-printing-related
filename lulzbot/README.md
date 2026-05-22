@@ -1,12 +1,19 @@
 # Lulzbot Mini control
 
-Direct USB control of a Lulzbot Mini, bypassing Cura LE (which has been
-unreliable for *printing* over USB on this machine — slicing in Cura LE
-still works fine if you prefer it over PrusaSlicer).
+Two tools, two jobs:
 
-Everything lives in one CLI: [`lulz.py`](lulz.py). Quiet by default,
-opt-in live monitoring, full transcript always logged to
-`~/.lulzbot/last_run.log`.
+- **[OctoPrint](OCTOPRINT.md)** — primary host for actual printing.
+  Replaces Cura LE's USB-printing role. You slice in PrusaSlicer (or
+  Cura), upload `.gcode` to OctoPrint at <http://localhost:5001>, click
+  Print. Setup: see [OCTOPRINT.md](OCTOPRINT.md).
+- **[`lulz`](lulz.py)** — direct-USB CLI for debugging and calibration
+  work that OctoPrint isn't suited for (deep-descent Z calibration,
+  one-shot G-code probing, nozzle cleaning). Quiet by default, full
+  transcript logged to `~/.lulzbot/last_run.log`.
+
+Only one program can hold `/dev/cu.usbmodem144101` at a time — disconnect
+OctoPrint in its UI before using `lulz`, and quit `lulz` before letting
+OctoPrint connect.
 
 For G-code semantics, see [GCODE.md](GCODE.md).
 
