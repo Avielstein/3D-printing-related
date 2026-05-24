@@ -1,0 +1,18 @@
+# lulzbot/requirements.txt
+#
+# Install with:
+#   /usr/local/bin/python3 -m pip install --user -r lulzbot/requirements.txt
+#
+# Use the same python3 that owns your serial port (the macOS system
+# python3 at /usr/local/bin/python3 is what we've been using; a
+# pyenv-managed interpreter at ~/.pyenv/... does NOT pick up Apple's
+# pyserial unless you install pyserial inside it too).
+
+# --- always required ---
+pyserial>=3.5             # serial transport (printer.py)
+
+# --- optional, only required for `lulz ui` / `:ui` ---
+# Lazy-imported inside session._start_ui, so leaving these out is fine
+# as long as you never invoke the browser UI.
+fastapi>=0.110
+uvicorn>=0.27

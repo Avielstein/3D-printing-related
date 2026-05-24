@@ -1,0 +1,269 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  background: #f6f6f6;
+  color: #222;
+}
+
+header {
+  padding: 8px 16px;
+  background: #222;
+  color: #eee;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+}
+
+header .hint {
+  font-size: 11px;
+  color: #999;
+  flex: 1;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #555;
+}
+
+.status-dot.ok { background: #4c4; }
+.status-dot.err { background: #c44; }
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+}
+
+@media (max-width: 700px) {
+  main { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #888;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 4px;
+}
+
+table.kv {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.kv th {
+  text-align: left;
+  font-weight: normal;
+  color: #888;
+  padding: 2px 6px 2px 0;
+  width: 70px;
+}
+
+table.kv td {
+  font-family: ui-monospace, Menlo, monospace;
+  padding: 2px 0;
+}
+
+#temp-graph {
+  width: 100%;
+  height: 80px;
+  margin-top: 8px;
+  background: #fafafa;
+  border: 1px solid #eee;
+}
+
+.legend {
+  font-size: 11px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  vertical-align: middle;
+  margin-right: 4px;
+  border-radius: 1px;
+}
+
+.step-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.step-row .unit {
+  color: #888;
+  font-size: 11px;
+}
+
+.jog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  max-width: 220px;
+  margin: 0 auto;
+}
+
+.jog-grid button:nth-child(1) { grid-column: 2; }
+.jog-grid button:nth-child(2) { grid-column: 1; }
+.jog-grid button:nth-child(3) { grid-column: 2; }
+.jog-grid button:nth-child(4) { grid-column: 3; }
+.jog-grid button:nth-child(5) { grid-column: 2; }
+
+.jog {
+  padding: 12px 8px;
+  font-size: 16px;
+  font-family: ui-monospace, Menlo, monospace;
+  background: #fafafa;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.jog:hover { background: #eef; }
+.jog:active, .jog.held { background: #ccd; }
+
+.jog.home {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #888;
+}
+
+.z-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.z-row .jog {
+  flex: 1;
+  max-width: 110px;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+input[type=number] {
+  width: 80px;
+  padding: 4px 6px;
+  font-family: ui-monospace, Menlo, monospace;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+select {
+  flex: 1;
+  padding: 4px 6px;
+  font-family: ui-monospace, Menlo, monospace;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  min-width: 0;
+}
+
+button {
+  padding: 5px 12px;
+  font-size: 12px;
+  background: #fafafa;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+button:hover { background: #eef; }
+button:disabled { color: #aaa; cursor: not-allowed; background: #f4f4f4; }
+
+.hint {
+  color: #888;
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+
+.info {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: #555;
+  padding: 4px 0;
+}
+
+.bar {
+  height: 8px;
+  background: #eee;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.bar-fill {
+  height: 100%;
+  background: #4c4;
+  width: 0;
+  transition: width 0.3s;
+}
+
+.panel-panic {
+  grid-column: 1 / -1;
+  padding: 0;
+}
+
+#btn-panic {
+  width: 100%;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  background: #c44;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#btn-panic:hover { background: #d55; }
+
+/* Print-running: dim the jog / heat / papertest / print panels so the
+ * user sees at a glance that those controls are locked. Status, temp
+ * graph, cancel, and panic remain at full opacity. */
+body.printing #panel-jog,
+body.printing #panel-heat,
+body.printing #panel-papertest {
+  opacity: 0.45;
+  pointer-events: none;
+}
+body.printing #panel-print .bar {
+  background: #cce;
+}
+body.printing #panel-print .bar-fill {
+  background: #36c;
+}

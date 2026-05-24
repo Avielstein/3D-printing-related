@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lulz</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>lulz</h1>
+    <span class="hint">arrows = X/Y &nbsp; Enter = Z+ &nbsp; Space = Z- &nbsp; 1/2/3 = step</span>
+    <span class="status-dot" id="conn-dot" title="connection"></span>
+  </header>
+
+  <main>
+    <section class="panel" id="panel-status">
+      <h2>status</h2>
+      <table class="kv">
+        <tr><th>hotend</th><td><span id="t-actual">--</span> / <span id="t-target">--</span> &deg;C</td></tr>
+        <tr><th>bed</th><td><span id="b-actual">--</span> / <span id="b-target">--</span> &deg;C</td></tr>
+        <tr><th>X</th><td id="pos-x">--</td></tr>
+        <tr><th>Y</th><td id="pos-y">--</td></tr>
+        <tr><th>Z</th><td id="pos-z">--</td></tr>
+        <tr><th>z_min</th><td id="z-min">--</td></tr>
+        <tr><th>step</th><td id="step-val">1.0 mm</td></tr>
+      </table>
+      <svg id="temp-graph" viewBox="0 0 300 100" preserveAspectRatio="none">
+        <line x1="0" y1="50" x2="300" y2="50" stroke="#ddd" stroke-dasharray="2,4"/>
+        <polyline id="t-line" fill="none" stroke="#c33" stroke-width="1.5"/>
+        <polyline id="b-line" fill="none" stroke="#36c" stroke-width="1.5"/>
+      </svg>
+      <div class="legend">
+        <span class="sw" style="background:#c33"></span> hotend
+        <span class="sw" style="background:#36c"></span> bed
+      </div>
+    </section>
+
+    <section class="panel" id="panel-jog">
+      <h2>jog</h2>
+      <div class="step-row">
+        <label><input type="radio" name="step" value="0.1"> 0.1</label>
+        <label><input type="radio" name="step" value="1" checked> 1</label>
+        <label><input type="radio" name="step" value="10"> 10</label>
+        <span class="unit">mm</span>
+      </div>
+      <div class="jog-grid">
+        <button class="jog" data-axis="Y" data-dir="+1" title="Y+ (away)">&uarr;</button>
+        <button class="jog" data-axis="X" data-dir="-1" title="X-">&larr;</button>
+        <button class="jog home" data-action="home" title="G28 X Y">home</button>
+        <button class="jog" data-axis="X" data-dir="+1" title="X+">&rarr;</button>
+        <button class="jog" data-axis="Y" data-dir="-1" title="Y- (toward you)">&darr;</button>
+      </div>
+      <div class="z-row">
+        <button class="jog" data-axis="Z" data-dir="+1" title="Z+ (lift / Enter)">Z+ &uarr;</button>
+        <button class="jog" data-axis="Z" data-dir="-1" title="Z- (down / Space)">Z- &darr;</button>
+      </div>
+      <p class="hint">click + hold, or focus the page and hold arrow / Enter / Space.</p>
+    </section>
+
+    <section class="panel" id="panel-heat">
+      <h2>heat</h2>
+      <div class="row">
+        <input type="number" id="heat-temp" value="180" min="0" max="280" step="5">
+        <button id="btn-heat">heat</button>
+        <button id="btn-cool">cool</button>
+      </div>
+      <p class="hint">TPU wipe: 180 &deg;C &middot; TPU probe: 160 &deg;C &middot; print: 240 &deg;C</p>
+    </section>
+
+    <section class="panel" id="panel-papertest">
+      <h2>paper test</h2>
+      <div class="row">
+        <label><input type="checkbox" id="pt-use-g28" checked> use G28 (matches print flow)</label>
+      </div>
+      <div class="row">
+        <button id="btn-pt-start">start</button>
+        <button id="btn-pt-done" disabled>done (record sweet spot)</button>
+      </div>
+      <div id="pt-status" class="info"></div>
+      <div class="row">
+        <button id="btn-pt-write" disabled>patch lulzbot_mini_tpu.ini</button>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-print">
+      <h2>print</h2>
+      <div class="row">
+        <select id="file-pick"><option>(loading…)</option></select>
+        <button id="btn-refresh-files" title="refresh">&#8635;</button>
+      </div>
+      <div class="row">
+        <button id="btn-print">start print</button>
+        <button id="btn-cancel">cancel</button>
+      </div>
+      <div class="bar"><div class="bar-fill" id="print-fill"></div></div>
+      <div id="print-info" class="info">idle</div>
+    </section>
+
+    <section class="panel panel-panic">
+      <button id="btn-panic">PANIC &mdash; M410 + heat off</button>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

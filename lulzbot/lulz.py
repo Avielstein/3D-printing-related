@@ -39,10 +39,17 @@ from printer import (
     LOG_PATH,
     PORT,
     Printer,
+    jog_one,
+    papertest_lift,
+    papertest_offset,
+    papertest_setup,
     parse_position,
     parse_temps,
     parse_z_min,
     prep_tpu,
+    safe_shutdown,
+    safety_lift,
+    stream_gcode,
     wait_for_temp,
     wipe_nozzle,
     z_calibrate,
@@ -81,86 +88,131 @@ def _connect(args):
 
 
 # ---------- subcommands ----------
+#
+# Each subcommand is split into a `do_*(p, ...)` core that takes an
+# already-connected `Printer` and a `cmd_*(args)` wrapper used by argparse
+# that handles `_connect` / `p.close()`. The session ([session.py](session.py))
+# imports `do_*` directly so it can run any command against its held printer
+# without re-opening the serial port (which would DTR-reset the board).
+
+def do_status(p):
+    fw = p.send("M115")
+    temps = parse_temps(p.send("M105"))
+    pos = parse_position(p.send("M114"))
+    endstops = p.send("M119")
+    z_state = parse_z_min(endstops)
+
+    fw_line = next((r for r in fw if r.upper().startswith("FIRMWARE_NAME")), "?")
+    z_word = {True: "TRIGGERED", False: "open", None: "?"}[z_state]
+    print(f"firmware : {fw_line[:80]}")
+    print(f"temps    : T={temps.get('T', '?')}  B={temps.get('B', '?')}")
+    print(f"position : X={pos.get('X', '?')}  Y={pos.get('Y', '?')}  "
+          f"Z={pos.get('Z', '?')}  E={pos.get('E', '?')}")
+    print(f"z_min    : {z_word}")
+
 
 def cmd_status(args):
     p = _connect(args)
     try:
-        fw = p.send("M115")
-        temps = parse_temps(p.send("M105"))
-        pos = parse_position(p.send("M114"))
-        endstops = p.send("M119")
-        z_state = parse_z_min(endstops)
-
-        fw_line = next((r for r in fw if r.upper().startswith("FIRMWARE_NAME")), "?")
-        z_word = {True: "TRIGGERED", False: "open", None: "?"}[z_state]
-        print(f"firmware : {fw_line[:80]}")
-        print(f"temps    : T={temps.get('T', '?')}  B={temps.get('B', '?')}")
-        print(f"position : X={pos.get('X', '?')}  Y={pos.get('Y', '?')}  "
-              f"Z={pos.get('Z', '?')}  E={pos.get('E', '?')}")
-        print(f"z_min    : {z_word}")
+        do_status(p)
     finally:
         p.close()
+
+
+def do_home(p):
+    """Reset to a safe idle state: heaters off, then safety lift, then
+    full G28 (homes X, Y, and Z via the firmware probe routine). Matches
+    what start_gcode does at the top of a print, plus turns off heat so
+    `home` is a "park the machine cleanly" verb you can run anytime.
+    """
+    p.send("M104 S0")             # hotend target → 0
+    p.send("M140 S0")             # bed target → 0
+    safety_lift(p)
+    p.send("G28")
+    print("homed X Y Z, heaters off (safety lift + G28)")
 
 
 def cmd_home(args):
     p = _connect(args)
     try:
-        p.send("G28 X Y")
-        print("homed X and Y (Z: use `lulz zcal`)")
+        do_home(p)
     finally:
         p.close()
+
+
+def do_heat(p, temp, wait=False):
+    p.send(f"M104 S{temp}")
+    if wait:
+        t = wait_for_temp(p, temp, axis="T")
+        print(f"hotend reached {temp}C in {t:.1f}s")
+    else:
+        print(f"hotend target set to {temp}C (not waiting)")
 
 
 def cmd_heat(args):
     p = _connect(args)
     try:
-        p.send(f"M104 S{args.temp}")
-        if args.wait:
-            t = wait_for_temp(p, args.temp, axis="T")
-            print(f"hotend reached {args.temp}C in {t:.1f}s")
-        else:
-            print(f"hotend target set to {args.temp}C (not waiting)")
+        do_heat(p, args.temp, wait=args.wait)
     finally:
         p.close()
+
+
+def do_cool(p):
+    p.send("M104 S0")
+    p.send("M140 S0")
+    print("heaters off")
 
 
 def cmd_cool(args):
     p = _connect(args)
     try:
-        p.send("M104 S0")
-        p.send("M140 S0")
-        print("heaters off")
+        do_cool(p)
     finally:
         p.close()
+
+
+def do_jog(p, axis, mm):
+    """Single relative jog. Reuses the shared printer.jog_one helper so
+    the session arrow-key loop and the CLI `lulz jog` command share the
+    same G91/G1/G90 sequence and feedrates.
+    """
+    jog_one(p, axis, mm)
+    print(f"jogged {axis.upper()} by {mm} mm")
 
 
 def cmd_jog(args):
     axis = args.axis.upper()
     if axis not in "XYZE":
         sys.exit(f"axis must be X/Y/Z/E (got {args.axis})")
-    feed = {"X": 2000, "Y": 2000, "Z": 600, "E": 50}[axis]
     p = _connect(args)
     try:
-        p.send("G91")
-        p.send(f"G1 {axis}{args.mm} F{feed}")
-        p.send("G90")
-        print(f"jogged {axis} by {args.mm} mm")
+        do_jog(p, axis, args.mm)
     finally:
         p.close()
+
+
+def do_move(p, x, y, z=None):
+    parts = [f"X{x}", f"Y{y}"]
+    if z is not None:
+        parts.append(f"Z{z}")
+    p.send("G90")
+    p.send("G1 " + " ".join(parts) + " F4000")
+    print(f"moved to X={x} Y={y}" + (f" Z={z}" if z is not None else ""))
 
 
 def cmd_move(args):
-    parts = [f"X{args.x}", f"Y{args.y}"]
-    if args.z is not None:
-        parts.append(f"Z{args.z}")
     p = _connect(args)
     try:
-        p.send("G90")
-        p.send("G1 " + " ".join(parts) + " F4000")
-        print(f"moved to X={args.x} Y={args.y}"
-              + (f" Z={args.z}" if args.z is not None else ""))
+        do_move(p, args.x, args.y, args.z)
     finally:
         p.close()
+
+
+def do_zcal(p):
+    contact = z_calibrate(p)
+    if contact is None:
+        sys.exit("zcal FAILED: no z_min contact within descent range")
+    print(f"z contact at {contact:.2f} mm — declared Z=1, lifted to Z=10")
 
 
 def cmd_zcal(args):
@@ -171,93 +223,102 @@ def cmd_zcal(args):
         sys.exit(1)
     p = _connect(args)
     try:
-        contact = z_calibrate(p)
-        if contact is None:
-            sys.exit("zcal FAILED: no z_min contact within descent range")
-        print(f"z contact at {contact:.2f} mm — declared Z=1, lifted to Z=10")
+        do_zcal(p)
     finally:
         p.close()
+
+
+def do_wipe(p):
+    wipe_nozzle(p)
+    print("wipe sequence complete")
 
 
 def cmd_wipe(args):
     p = _connect(args)
     try:
-        wipe_nozzle(p)
-        print("wipe sequence complete")
+        do_wipe(p)
     finally:
         p.close()
+
+
+def do_prep(p, wipe_temp=180, probe_temp=160):
+    prep_tpu(p, wipe_temp=wipe_temp, probe_temp=probe_temp)
+    print(f"prepped: wipe {wipe_temp}C → retract → wipe → cool {probe_temp}C")
 
 
 def cmd_prep(args):
     p = _connect(args)
     try:
-        prep_tpu(p, wipe_temp=args.wipe_temp, probe_temp=args.probe_temp)
-        print(f"prepped: wipe {args.wipe_temp}C → retract → wipe → cool {args.probe_temp}C")
+        do_prep(p, wipe_temp=args.wipe_temp, probe_temp=args.probe_temp)
     finally:
         p.close()
+
+
+def do_extrude(p, mm, feed=50):
+    p.send("M83")
+    p.send(f"G1 E{mm} F{feed}")
+    print(f"extruded {mm} mm at F{feed}")
 
 
 def cmd_extrude(args):
     p = _connect(args)
     try:
-        p.send("M83")
-        p.send(f"G1 E{args.mm} F{args.feed}")
-        print(f"extruded {args.mm} mm at F{args.feed}")
+        do_extrude(p, args.mm, feed=args.feed)
     finally:
         p.close()
 
 
-def cmd_print(args):
-    path = Path(args.file).expanduser().resolve()
-    if not path.is_file():
-        sys.exit(f"not a file: {path}")
+def do_print(p, file, zcal=False, cancel_flag=None):
+    """Stream a .gcode file with a live progress bar. Reuses
+    `printer.stream_gcode` so the session and the FastAPI UI share the
+    same streaming logic, just with different `on_progress` sinks.
 
-    with open(path) as fh:
-        raw_lines = fh.readlines()
+    This is the *synchronous* one-shot path used by `lulz print …` from
+    the OS shell. The interactive session uses `Session._start_print`
+    instead, which runs the stream in a background thread so the UI can
+    be started mid-print.
+    """
+    from printer import make_bar_printer, fmt_dur
+    if zcal:
+        # Run zcal in the same serial session so its G92 Z=1 reference
+        # persists across the streamed print (no DTR reset between).
+        print("[zcal] safety lift...", flush=True)
+        safety_lift(p)
+        print("[zcal] probing front-left washer...", flush=True)
+        contact = z_calibrate(p)
+        if contact is None:
+            sys.exit("zcal FAILED: no z_min contact, aborting before print")
+        print(f"[zcal] contact at {contact:.2f}, Z=1 set, lifted to Z=10",
+              flush=True)
 
-    cmds = []
-    for raw in raw_lines:
-        line = raw.split(";", 1)[0].strip()
-        if line:
-            cmds.append(line)
-    total = len(cmds)
+    label = Path(file).name
+    print(f"streaming {label}")
+    try:
+        sent, total, elapsed, cancelled = stream_gcode(
+            p, file,
+            on_progress=make_bar_printer(),
+            cancel_flag=cancel_flag,
+        )
+    except RuntimeError as e:
+        print()
+        sys.exit(f"aborted: {e}")
+    except KeyboardInterrupt:
+        print()
+        raise
+    print()
     if total == 0:
         sys.exit("nothing to send (file is empty or all comments)")
+    if cancelled:
+        print(f"cancelled: {sent}/{total} lines in {fmt_dur(elapsed)}")
+    else:
+        print(f"done: {total} lines in {fmt_dur(elapsed)} "
+              f"(avg {total/max(elapsed,0.001):.1f} ln/s)")
 
+
+def cmd_print(args):
     p = _connect(args)
-    start = time.time()
-    last_progress = start
-    last_percent = -1
     try:
-        if args.zcal:
-            # Run zcal in the same serial session so its G92 Z=1 reference
-            # persists across the streamed print (no DTR reset between).
-            print("[zcal] safety lift...", flush=True)
-            p.send("M211 S0")
-            p.send("G91")
-            p.send("G1 Z30 F600")
-            p.send("G90")
-            print("[zcal] probing front-left washer...", flush=True)
-            contact = z_calibrate(p)
-            if contact is None:
-                sys.exit("zcal FAILED: no z_min contact, aborting before print")
-            print(f"[zcal] contact at {contact:.2f}, Z=1 set, lifted to Z=10",
-                  flush=True)
-
-        for i, cmd in enumerate(cmds, 1):
-            replies = p.send(cmd)
-            for r in replies:
-                if r.lower().startswith(("error", "!!")):
-                    sys.exit(f"aborted at line {i}/{total}: printer reported "
-                             f"`{r}` on `{cmd}`")
-            percent = (i * 100) // total
-            now = time.time()
-            if percent >= last_percent + 5 or now - last_progress >= 30:
-                print(f"  {percent:3d}% — line {i}/{total}  ({now - start:.0f}s)",
-                      flush=True)
-                last_percent = percent
-                last_progress = now
-        print(f"done: {total} commands in {time.time() - start:.0f}s")
+        do_print(p, args.file, zcal=args.zcal)
     finally:
         p.close()
 
@@ -306,26 +367,42 @@ def cmd_watch(args):
         p.close()
 
 
+def do_panic(p):
+    """Stop motion + heaters + steppers, but DO NOT close the port.
+
+    The session calls this on the `p` shortcut so the user can keep
+    using arrow keys afterward. The argparse one-shot wraps it with
+    a close.
+    """
+    p.send("M410")      # quickstop
+    p.send("M104 S0")   # hotend off
+    p.send("M140 S0")   # bed off
+    p.send("M84")       # steppers off
+    print("PANIC: quickstop sent, heaters and steppers off")
+
+
 def cmd_panic(args):
     p = _connect(args)
     try:
-        p.send("M410")      # quickstop
-        p.send("M104 S0")   # hotend off
-        p.send("M140 S0")   # bed off
-        p.send("M84")       # steppers off
-        print("PANIC: quickstop sent, heaters and steppers off")
+        do_panic(p)
     finally:
         p.close()
+
+
+def do_raw(p, gcode, echo_to_stdout=True):
+    replies = p.send(gcode, echo=True)
+    if echo_to_stdout:
+        # In raw mode, also echo the result back to stdout (caller asked
+        # for it). When verbose is already on, `p.send` already echoed.
+        for r in replies:
+            print(f"<< {r}")
+    return replies
 
 
 def cmd_raw(args):
     p = _connect(args)
     try:
-        replies = p.send(args.gcode, echo=True)
-        # In raw mode, also echo the result back (caller asked for it).
-        if not args.verbose:
-            for r in replies:
-                print(f"<< {r}")
+        do_raw(p, args.gcode, echo_to_stdout=not args.verbose)
     finally:
         p.close()
 
@@ -337,15 +414,94 @@ def cmd_log(args):
     print(LOG_PATH)
 
 
+def do_papertest(p, *, use_g28=False):
+    """Interactive paper-test calibration using line-mode `d N` / `u N`.
+
+    Returns the recorded offset on `done`, or None on `abort`. Either
+    way, head is lifted to Z+10 before return.
+
+    Same workflow as before, but the safety-lift + G28-or-zcal +
+    park-at-center logic is now in `printer.papertest_setup` so the
+    UI's wizard can reuse it.
+    """
+    print("safety lift + reference step...")
+    try:
+        mode, post_ref_z = papertest_setup(p, use_g28=use_g28)
+    except RuntimeError as e:
+        sys.exit(str(e))
+
+    if mode == "g28":
+        print(f"after G28: Marlin Z = {post_ref_z:.3f}")
+        print(f"head is at Marlin Z={post_ref_z:.3f} above center bed.")
+        print("jog DOWN to find paper friction.")
+    else:
+        print(f"z contact (washer) → declared Z=1 (washer top)")
+        print(f"dropped to presumed bed glass (Z=0).")
+
+    print()
+    print("Slide paper between nozzle and bed. Commands:")
+    print("  d [N]       descend N mm (default 0.1)")
+    print("  u [N]       ascend N mm (default 0.1)")
+    print("  z           report current Z (M114)")
+    print("  done        record current Z as sweet spot, lift and exit")
+    print("  abort       lift and exit without recording")
+    print()
+
+    recorded_offset = None
+    while True:
+        try:
+            line = input("paper> ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            line = "abort"
+        if not line:
+            continue
+        parts = line.split()
+        cmd = parts[0]
+        try:
+            arg = float(parts[1]) if len(parts) > 1 else 0.1
+        except ValueError:
+            print(f"bad number: {parts[1]}")
+            continue
+
+        if cmd in ("d", "down"):
+            jog_one(p, "Z", -arg)
+        elif cmd in ("u", "up"):
+            jog_one(p, "Z", arg)
+        elif cmd == "z":
+            pos = parse_position(p.send("M114"))
+            print(f"  Z = {pos.get('Z', '?')}")
+        elif cmd == "done":
+            try:
+                z_sweet, offset = papertest_offset(
+                    p, mode=mode, post_ref_z=post_ref_z)
+            except RuntimeError as e:
+                sys.exit(str(e))
+            papertest_lift(p, 10)
+            print()
+            print(f"sweet-spot Z = {z_sweet:.3f}")
+            if mode == "g28":
+                print(f"post-G28 Z was: {post_ref_z:.3f}")
+            else:
+                print(f"actual washer-to-bed distance = {offset:.3f} mm")
+            print(f"=> patch start_gcode to: G28\\nG92 Z{offset:.3f}\\n...")
+            print(f"(`:papertest write` from the session will patch the .ini)")
+            recorded_offset = offset
+            break
+        elif cmd in ("abort", "q", "quit"):
+            papertest_lift(p, 10)
+            break
+        else:
+            print(f"unknown: {cmd}")
+    return recorded_offset
+
+
 def cmd_papertest(args):
     """Interactive paper-test calibration of the bed-glass Z offset.
 
     All operations happen in ONE serial session (no DTR reset between
     steps), so the G92 Z=1 reference from zcal persists through the
     move + jog + M114 sequence.
-
-    After the user finds the paper-friction sweet spot, we read M114 and
-    print the offset needed in start_gcode (`G92 Z<offset>` right after G28).
     """
     if not args.yes:
         print("WARNING: papertest runs zcal first (descends nozzle up to 40mm")
@@ -353,106 +509,8 @@ def cmd_papertest(args):
         sys.exit(1)
 
     p = _connect(args)
-    post_ref_z = None  # Marlin Z right after calibration (G28 mode only)
     try:
-        # Safety lift: previous commands may have left the head close to the
-        # bed. After DTR reset, Marlin doesn't know its position.
-        print("safety lift (relative +30mm Z)...")
-        p.send("M211 S0")
-        p.send("G91")
-        p.send("G1 Z30 F600")
-        p.send("G90")
-
-        if args.use_g28:
-            print("running G28 (probe-based Z homing — matches print flow)...")
-            p.send("G28")
-            post_ref_z = parse_position(p.send("M114")).get("Z", 0)
-            print(f"after G28: Marlin Z = {post_ref_z:.3f}")
-            print("moving to bed center...")
-            p.send("G0 X75 Y75 F4000")
-            # Don't auto-descend — user jogs from here to find paper friction
-            print(f"head is at Marlin Z={post_ref_z:.3f} above center bed.")
-            print("jog DOWN to find paper friction.")
-        else:
-            contact = z_calibrate(p)
-            if contact is None:
-                sys.exit("zcal FAILED: no z_min contact within descent range")
-            print(f"z contact at {contact:.2f} mm — declared Z=1 (washer top)")
-            print("moving to bed center...")
-            p.send("G0 X75 Y75 F4000")
-            print("dropping to presumed bed glass (Z=0)...")
-            p.send("G1 Z0 F300")
-
-        print()
-        print("Slide paper between nozzle and bed. Commands:")
-        print("  d [N]       descend N mm (default 0.1)")
-        print("  u [N]       ascend N mm (default 0.1)")
-        print("  z           report current Z (M114)")
-        print("  done        record current Z as sweet spot, lift and exit")
-        print("  abort       lift and exit without recording")
-        print()
-
-        while True:
-            try:
-                line = input("paper> ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                line = "abort"
-            if not line:
-                continue
-            parts = line.split()
-            cmd = parts[0]
-            try:
-                arg = float(parts[1]) if len(parts) > 1 else 0.1
-            except ValueError:
-                print(f"bad number: {parts[1]}")
-                continue
-
-            if cmd in ("d", "down"):
-                p.send("G91")
-                p.send(f"G1 Z-{arg} F300")
-                p.send("G90")
-            elif cmd in ("u", "up"):
-                p.send("G91")
-                p.send(f"G1 Z{arg} F300")
-                p.send("G90")
-            elif cmd == "z":
-                pos = parse_position(p.send("M114"))
-                print(f"  Z = {pos.get('Z', '?')}")
-            elif cmd == "done":
-                pos = parse_position(p.send("M114"))
-                z = pos.get("Z")
-                p.send("G91")
-                p.send("G1 Z10 F600")
-                p.send("G90")
-                if z is None:
-                    sys.exit("could not read Z from M114")
-                print()
-                print(f"sweet-spot Z = {z:.3f}")
-                if args.use_g28:
-                    # G28 mode: head physically descended by (post_ref_z - z)
-                    # from post-G28 position to sweet-spot (bed glass).
-                    # The patch makes Marlin's Z=0 land at bed glass.
-                    patch = post_ref_z - z
-                    print(f"post-G28 Z was: {post_ref_z:.3f}")
-                    print(f"=> patch start_gcode to: G28\\nG92 Z{patch:.3f}\\n...")
-                else:
-                    # zcal mode: zcal declared washer-top as Z=1. If sweet-spot
-                    # (= bed glass) reads Z = z_sweet, washer is (1 - z_sweet)
-                    # above bed. In start_gcode after G28 (firmware Z=0 at
-                    # washer top), `G92 Z<1 - z_sweet>` makes Z=0 = bed glass.
-                    offset = 1.0 - z
-                    print(f"actual washer-to-bed distance = {offset:.3f} mm")
-                    print(f"=> patch start_gcode to: G28\\nG92 Z{offset:.3f}\\n...")
-                print(f"(tell me this number — i'll patch the .ini)")
-                break
-            elif cmd in ("abort", "q", "quit"):
-                p.send("G91")
-                p.send("G1 Z10 F600")
-                p.send("G90")
-                break
-            else:
-                print(f"unknown: {cmd}")
+        do_papertest(p, use_g28=args.use_g28)
     finally:
         p.close()
 
@@ -591,6 +649,33 @@ def cmd_host(args):
         sys.exit(f"OctoPrint did not respond within 120s. see {OCTO_LOG}")
 
 
+# ---------- live session entry points ----------
+
+def cmd_session(args):
+    """Default mode: drop into the live interactive `lulz>` session.
+
+    Holds the serial port for the lifetime of the session (so DTR-reset
+    happens once at start, not per command). Arrow keys jog the head;
+    `:cmd args` runs any of the one-shot commands inline; `:ui` spins up
+    the browser UI in a worker thread sharing the same `Printer`.
+    """
+    from session import Session
+    p = _connect(args)
+    s = Session(p, run_ui_on_start=False)
+    s.run()
+
+
+def cmd_ui(args):
+    """Live session + auto-launch the browser UI. Same process, same
+    Printer, same abort path (Ctrl-C in the terminal).
+    """
+    from session import Session
+    p = _connect(args)
+    s = Session(p, run_ui_on_start=True, ui_port=args.port,
+                ui_no_open=args.no_open)
+    s.run()
+
+
 # ---------- argparse ----------
 
 def build_parser():
@@ -600,10 +685,11 @@ def build_parser():
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="echo every printer reply to stdout (chatty)")
 
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    # subcommand is optional — no subcommand = live session.
+    sub = ap.add_subparsers(dest="cmd", required=False)
 
     sub.add_parser("status", help="firmware, temps, position, endstops").set_defaults(func=cmd_status)
-    sub.add_parser("home", help="G28 X Y (Z handled by zcal)").set_defaults(func=cmd_home)
+    sub.add_parser("home", help="heaters off + safety lift + full G28 (X Y Z via firmware probe)").set_defaults(func=cmd_home)
 
     h = sub.add_parser("heat", help="set hotend target")
     h.add_argument("temp", type=int)
@@ -669,11 +755,26 @@ def build_parser():
     host.add_argument("action", choices=["start", "stop", "status"])
     host.set_defaults(func=cmd_host)
 
+    se = sub.add_parser("session",
+                        help="live interactive session (default when no subcommand)")
+    se.set_defaults(func=cmd_session)
+
+    u = sub.add_parser("ui",
+                       help="live session + auto-launch browser UI (FastAPI inside this process)")
+    u.add_argument("--port", type=int, default=8080,
+                   help="HTTP port to bind (default 8080)")
+    u.add_argument("--no-open", action="store_true",
+                   help="don't auto-open the browser")
+    u.set_defaults(func=cmd_ui)
+
     return ap
 
 
 def main():
     args = build_parser().parse_args()
+    if not getattr(args, "cmd", None):
+        # No subcommand → drop into the live session.
+        return cmd_session(args)
     args.func(args)
 
 
