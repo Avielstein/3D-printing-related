@@ -323,6 +323,22 @@ def cmd_print(args):
         p.close()
 
 
+def cmd_auto(args):
+    """Full one-shot pipeline from the OS shell. Spins up a transient
+    Session, runs paper-test calibration interactively, patches the
+    .ini with the recorded offset, slices the STL, then streams the
+    resulting .gcode. Same flow as the REPL's `auto` verb — see
+    Session.run_auto.
+    """
+    from session import Session
+    p = _connect(args)
+    s = Session(p)
+    try:
+        s.run_auto(args.file, zcal=args.zcal)
+    finally:
+        s._shutdown()
+
+
 def cmd_slice(args):
     stl = Path(args.file).expanduser().resolve()
     if not stl.is_file():
@@ -735,6 +751,15 @@ def build_parser():
     s = sub.add_parser("slice", help="slice an STL via PrusaSlicer using the Lulzbot Mini TPU profile")
     s.add_argument("file")
     s.set_defaults(func=cmd_slice)
+
+    au = sub.add_parser(
+        "auto",
+        help="full pipeline: paper-test calibration → patch .ini → slice → print"
+    )
+    au.add_argument("file", help=".stl (will be sliced) or .gcode (printed directly)")
+    au.add_argument("--zcal", action="store_true",
+                    help="run zcal before streaming (in same serial session)")
+    au.set_defaults(func=cmd_auto)
 
     sub.add_parser("watch", help="live serial tail (opt-in monitoring)").set_defaults(func=cmd_watch)
     sub.add_parser("panic", help="quickstop + heaters off + steppers off").set_defaults(func=cmd_panic)

@@ -109,6 +109,14 @@ commands (Enter to submit; Ctrl-C exits)
   progress                                 one-shot snapshot of the print job
   wait                                     re-attach the live bar to a bg print
   slice path.stl                           PrusaSlicer → .gcode (TPU profile)
+  auto path.stl [--zcal]                   FULL one-shot pipeline:
+                                            1. paper-test setup (G28, park)
+                                            2. enters jog mode for paper test
+                                               (Space to descend, `r` record,
+                                                `q` continue)
+                                            3. patch .ini with new offset
+                                            4. slice (if .stl)
+                                            5. stream the gcode
   raw 'M114'                               arbitrary G-code
   ui [--port 8080] [--no-open]             start in-process browser UI
   ui stop                                  stop browser UI
@@ -475,6 +483,12 @@ class Session:
                 import argparse
                 ns = argparse.Namespace(file=args[0])
                 lulz.cmd_slice(ns)
+            elif verb == "auto":
+                # Full pipeline: paper-test calibration → patch .ini →
+                # slice (if .stl) → stream. The paper-test step is
+                # interactive — see Session.run_auto.
+                zcal = "--zcal" in args[1:]
+                self.run_auto(args[0], zcal=zcal)
             elif verb == "raw":
                 lulz.do_raw(self.p, args[0], echo_to_stdout=True)
             elif verb == "panic":
@@ -537,6 +551,80 @@ class Session:
             print(f"slicer config missing: {ini}")
             return
         patch_g92_z(ini, self.last_offset)
+
+    # ---------- one-shot auto pipeline (calibrate → slice → print) ----------
+
+    def run_auto(self, file, *, zcal=False):
+        """Full calibrate-slice-print pipeline.
+
+        Blocks on the paper-test step: the head parks at bed center,
+        then we drop into jog mode so the user can slide paper, find
+        friction with Space, `r` to record, and `q` to exit jog. The
+        recorded offset is then written to the .ini, the STL is sliced,
+        and the resulting .gcode is streamed to the printer. If the
+        user exits jog without recording (no `r` pressed), the pipeline
+        aborts cleanly.
+
+        `file` may be a .stl (sliced first) or a .gcode (printed directly).
+        """
+        src = Path(file).expanduser()
+        if not src.is_absolute():
+            src = (Path.cwd() / src).resolve()
+        if not src.is_file():
+            print(f"not a file: {src}")
+            return False
+
+        # 1. Paper-test setup — safety lift + G28 + park at center.
+        print("[auto] running paper-test setup (safety lift + G28 + park at center)...")
+        try:
+            mode, post_ref_z = papertest_setup(self.p, use_g28=True)
+        except RuntimeError as e:
+            print(f"[auto] papertest setup failed: {e}")
+            return False
+        self.papertest_mode = mode
+        self.papertest_post_ref_z = post_ref_z
+        print(f"[auto] after G28: Marlin Z = {post_ref_z:.3f}, parked at (75, 75).")
+
+        # Clear any stale offset from a prior run so the abort check
+        # below distinguishes "user pressed r this time" from "user has
+        # ever pressed r".
+        self.last_offset = None
+
+        # 2. Drop into jog mode for the human step.
+        print()
+        print("[auto] slide a sheet of paper between nozzle and bed.")
+        print("[auto] in jog mode below: hold Space to descend, `1`/`2` for step,")
+        print("[auto]                    `r` to record sweet spot, `q` to continue.")
+        print()
+        self._jog_mode()
+
+        if self.last_offset is None:
+            print("[auto] no offset recorded — aborting before slice/print.")
+            return False
+
+        # 3. Patch the .ini with the new offset.
+        print(f"[auto] patching .ini with G92 Z{self.last_offset:.3f}...")
+        self._papertest_write()
+
+        # 4. Slice if STL; otherwise expect a .gcode.
+        if src.suffix.lower() == ".stl":
+            print(f"[auto] slicing {src.name}...")
+            import argparse, lulz
+            lulz.cmd_slice(argparse.Namespace(file=str(src)))
+            gcode = src.with_suffix(".gcode")
+            if not gcode.is_file():
+                print(f"[auto] slicer produced no output: {gcode}")
+                return False
+        elif src.suffix.lower() == ".gcode":
+            gcode = src
+        else:
+            print(f"[auto] file must be .stl or .gcode (got {src.suffix})")
+            return False
+
+        # 5. Stream the gcode (foreground bar; Ctrl-C cancels).
+        print(f"[auto] printing {gcode.name}...")
+        self.start_print(str(gcode), zcal=zcal, foreground=True)
+        return True
 
     # ---------- print orchestration ----------
 
